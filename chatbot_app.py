@@ -4,43 +4,61 @@ import random
 import json
 import nltk
 from nltk.stem.porter import PorterStemmer
-from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
+import re
 
 # Initialize the stemmer
 stemmer = PorterStemmer()
 
-# Define the custom tokenizer function (The Fix!)
-def custom_tokenizer(text):
-    """Tokenizes and stems the input text."""
-    words = nltk.word_tokenize(text)
-    stemmed_words = [stemmer.stem(w.lower()) for w in words]
-    return stemmed_words
-
-# Load the trained pipeline (which includes the vectorizer and classifier)
+# --- Load the Model and Data ---
 with open("chatbot_model.pkl", "rb") as model_file:
     model = pickle.load(model_file)
+
+with open("words.pkl", "rb") as words_file:
+    words = pickle.load(words_file)
+    
+with open("labels.pkl", "rb") as labels_file:
+    labels = pickle.load(labels_file)
+
 with open("intents.json") as intents_file:
     intents = json.load(intents_file)
 
-def get_response(user_input):
-    """
-    Analyzes user input using the trained model and provides a response.
-    """
-    # Use the loaded model's predict function
-    # It will automatically use the custom tokenizer within the pipeline
-    prediction = model.predict([user_input])[0]
+# A variable to store the user's name
+user_name = None
 
-    # Find the intent with the highest probability
+def get_response(user_input):
+    global user_name
+    
+    # Pre-process user input for prediction
+    user_input_words = nltk.word_tokenize(user_input)
+    user_input_words = [stemmer.stem(w.lower()) for w in user_input_words]
+    
+    bag_of_words = [0] * len(words)
+    for w in user_input_words:
+        if w in words:
+            bag_of_words[words.index(w)] = 1
+            
+    # Predict the intent
+    prediction = model.predict([bag_of_words])[0]
+    
+    # Check if the intent is for getting the user's name
+    if prediction == 'get_name':
+        name_match = re.search(r'(my name is|i am|you can call me|i\'m called|i go by)\s+([a-zA-Z]+)', user_input.lower())
+        if name_match:
+            user_name = name_match.group(2).capitalize()
+            return f"Nice to meet you, {user_name}!"
+
     for intent in intents['intents']:
         if intent['tag'] == prediction:
-            return random.choice(intent['responses'])
+            response = random.choice(intent['responses'])
+            if user_name and intent['tag'] == 'greeting':
+                 return f"{response} {user_name}!"
+            return response
+            
+    # Fallback
+    return random.choice(intents['intents'][5]['responses'])
     
-    # Fallback response if no intent is found (this is unlikely with this model type)
-    return random.choice(intents['intents'][4]['responses']) # Assuming 'no_answer' is the 5th intent
 
-# Main chat loop
 def chat():
     print("Bot: Hi! I'm a machine-learning powered chatbot. Type 'quit' to exit.")
     while True:
@@ -52,6 +70,5 @@ def chat():
         response = get_response(user_input)
         print(f"Bot: {response}")
 
-# Start the chatbot
 if __name__ == "__main__":
     chat()

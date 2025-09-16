@@ -1,52 +1,64 @@
 import nltk
 from nltk.stem.porter import PorterStemmer
 import numpy as np
+import random
 import json
 import pickle
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
-from sklearn.pipeline import Pipeline
 
 # Initialize the stemmer
 stemmer = PorterStemmer()
 
-# Define the custom tokenizer function (The Fix!)
-def custom_tokenizer(text):
-    """Tokenizes and stems the input text."""
-    words = nltk.word_tokenize(text)
-    stemmed_words = [stemmer.stem(w.lower()) for w in words]
-    return stemmed_words
-
-# --- Step 1: Load Data ---
+# --- Load and Pre-process Data ---
 with open('intents.json', 'r') as f:
     intents = json.load(f)
 
-# --- Step 2: Prepare the Training Data ---
-# Create lists to hold the training sentences and their corresponding labels (tags)
-all_training_sentences = []
-all_labels = []
+all_words = []
+tags = []
+xy = []
 
 for intent in intents['intents']:
     tag = intent['tag']
-    # Add all patterns for this intent to our training lists
+    tags.append(tag)
     for pattern in intent['patterns']:
-        all_training_sentences.append(pattern)
-        all_labels.append(tag)
+        w = nltk.word_tokenize(pattern)
+        all_words.extend(w)
+        xy.append((w, tag))
 
-# --- Step 3: Train the Model ---
-# Create a pipeline with a TF-IDF vectorizer and an SVM classifier
-# We pass our named tokenizer function to the TfidfVectorizer
-pipeline = Pipeline([
-    ('vectorizer', TfidfVectorizer(tokenizer=custom_tokenizer, lowercase=False)),
-    ('classifier', SVC(kernel='linear'))
-])
+ignore_words = ['?', '!', '.', ',']
+all_words = [stemmer.stem(w.lower()) for w in all_words if w not in ignore_words]
+all_words = sorted(list(set(all_words)))
+tags = sorted(list(set(tags)))
 
-# Train the pipeline
-pipeline.fit(all_training_sentences, all_labels)
+# --- Create Training Data ---
+training_data = []
+all_labels = []
 
-# --- Step 4: Save the Model and Data ---
-# Save the trained pipeline to a file
+for (pattern_sentence, tag) in xy:
+    bag = [0] * len(all_words)
+    pattern_words = [stemmer.stem(word.lower()) for word in pattern_sentence]
+    for idx, w in enumerate(all_words):
+        if w in pattern_words:
+            bag[idx] = 1
+    
+    training_data.append(bag)
+    all_labels.append(tag)
+
+X_train = np.array(training_data)
+y_train = np.array(all_labels)
+
+# --- Train the Model ---
+model = SVC(kernel='linear')
+model.fit(X_train, y_train)
+
+# --- Save the Model and Data ---
 with open("chatbot_model.pkl", "wb") as f:
-    pickle.dump(pipeline, f)
+    pickle.dump(model, f)
 
-print("Training complete. Model and data saved to chatbot_model.pkl.")
+with open("words.pkl", "wb") as f:
+    pickle.dump(all_words, f)
+    
+with open("labels.pkl", "wb") as f:
+    pickle.dump(tags, f)
+
+print("Training complete. Model and data saved to files.")
